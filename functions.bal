@@ -19,6 +19,7 @@ import ballerina/log;
 import ballerina/uuid;
 import ballerinax/health.fhir.r4;
 import ballerinax/health.fhir.r4utils.ccdatofhir;
+import ballerinax/health.fhir.r4.international401;
 
 function moveFileToErrorDirectory(string fileName, string fileContent) {
     ftp:Error? deletedFile = ftpClient->delete(path = incomingCcdaFileDir + fileName);
@@ -66,4 +67,94 @@ isolated function deduplicateBundle(r4:Bundle bundle) returns DeduplicatedAgentR
         log:printDebug("Received an empty deduplication response");
     }
     return {bundle: bundle, summary: []};
+}
+
+// Generates a unique signature for a resource based on key fields
+function getResourceSignature(r4:Resource 'resource) returns string?|error {
+    match 'resource {
+        var r if r is international401:Patient => {
+            // For Patients, use identifier OR name + birthDate + gender
+            if r.identifier is r4:Identifier[] && (<r4:Identifier[]>r.identifier).length() > 0 {
+                string? value = (<r4:Identifier[]>r.identifier)[0].value;
+                if value is string {
+                    return "Patient|" + value;
+                } else {
+                    return ();
+                }
+            } else {
+                // string nameStr = r.name.length() > 0 ? 
+                //     r.name[0].family + "|" + r.name[0].given.toString() : "";
+                // return "Patient|" + nameStr + "|" + r.birthDate.toString() + "|" + r.gender.toString();
+            }
+        }
+        // var r if r is international401:Practitioner => {
+        //     // For Practitioners, use identifier OR name
+        //     if r.identifier.length() > 0 {
+        //         return "Practitioner|" + r.identifier[0].value;
+        //     } else {
+        //         string nameStr = r.name.length() > 0 ? 
+        //             r.name[0].family + "|" + r.name[0].given.toString() : "";
+        //         return "Practitioner|" + nameStr;
+        //     }
+        // }
+        // var r if r is r4:Immunization => {
+        //     // For Immunizations, use identifier OR vaccineCode + occurrence + patient reference
+        //     if r.identifier.length() > 0 {
+        //         return "Immunization|" + r.identifier[0].value;
+        //     } else {
+        //         string vaccineCode = r.vaccineCode.coding.length() > 0 ? 
+        //             r.vaccineCode.coding[0].code.toString() : "";
+        //         string occurrence = r.occurrenceDateTime is string ? 
+        //             r.occurrenceDateTime.toString() : "";
+        //         string patientRef = r.patient.reference is string ? 
+        //             r.patient.reference.toString() : "";
+        //         return "Immunization|" + vaccineCode + "|" + occurrence + "|" + patientRef;
+        //     }
+        // }
+        // var r if r is r4:DiagnosticReport => {
+        //     // For DiagnosticReports, use identifier OR code + effective date
+        //     if r.identifier.length() > 0 {
+        //         return "DiagnosticReport|" + r.identifier[0].value;
+        //     } else {
+        //         string code = r.code.coding.length() > 0 ? 
+        //             r.code.coding[0].code.toString() : "";
+        //         string effectiveDate = r.effectiveDateTime is string ? 
+        //             r.effectiveDateTime.toString() : 
+        //             (r.effectivePeriod.start is string ? r.effectivePeriod.start.toString() : "");
+        //         return "DiagnosticReport|" + code + "|" + effectiveDate;
+        //     }
+        // }
+        // var r if r is r4:AllergyIntolerance => {
+        //     // For Allergies, use identifier OR code + patient reference
+        //     if r.identifier.length() > 0 {
+        //         return "AllergyIntolerance|" + r.identifier[0].value;
+        //     } else {
+        //         string code = r.code.coding.length() > 0 ? 
+        //             r.code.coding[0].code.toString() : "";
+        //         string patientRef = r.patient.reference is string ? 
+        //             r.patient.reference.toString() : "";
+        //         return "AllergyIntolerance|" + code + "|" + patientRef;
+        //     }
+        // }
+        // var r if r is r4:Condition => {
+        //     // For Conditions, use identifier OR code + onset date
+        //     if r.identifier.length() > 0 {
+        //         return "Condition|" + r.identifier[0].value;
+        //     } else {
+        //         string code = r.code.coding.length() > 0 ? 
+        //             r.code.coding[0].code.toString() : "";
+        //         string onsetDate = r.onsetDateTime is string ? 
+        //             r.onsetDateTime.toString() : "";
+        //         return "Condition|" + code + "|" + onsetDate;
+        //     }
+        // }
+        // // Add other resource types as needed
+        // var r => {
+        //     // Default case - just use resource type and ID if available
+        //     if r.id is string {
+        //         return r.resourceType.toString() + "|" + r.id;
+        //     }
+        //     return error("No identifier or signature fields available for resource type: " + r.resourceType.toString());
+        // }
+    }
 }

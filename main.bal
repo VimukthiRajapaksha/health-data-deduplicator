@@ -16,9 +16,9 @@
 
 import ballerina/ftp;
 import ballerina/io;
-import ballerinax/health.fhir.r4;
 import ballerina/log;
 import ballerinax/ai;
+import ballerinax/health.fhir.r4;
 
 // FTP Client configuration
 final ftp:ClientConfiguration clientConfig = {
@@ -33,12 +33,12 @@ final ftp:ClientConfiguration clientConfig = {
     }
 };
 
-
 // Initialize FTP client
 final ftp:Client ftpClient;
 
 // Initialize OpenAI agent
 final ai:Agent deduplicateAgent;
+r4:Bundle finalBundle = {'type: "transaction", 'entry: []};
 
 function init() returns error? {
     do {
@@ -50,36 +50,18 @@ function init() returns error? {
     }
 }
 
-listener ftp:Listener CCDAFileService = new (protocol = ftp:SFTP, host = ftpHost,
-    port = ftpPort,
-    auth = {
-        credentials: {
-            username: ftpUsername,
-            password: ftpPassword
-        }
-    },
-    fileNamePattern = "(.*).xml",
-    path = incomingCcdaFileDir,
-    pollingInterval = 3
-);
-
-r4:Bundle finalBundle = {'type: "transaction", 'entry: []};
-
-# File Listener Service to process incoming MRF files
-# The service listens for new files in the specified directory and processes them
-# by converting them to CSV format and uploading them to the specified directory.
-service ftp:Service on CCDAFileService {
-    remote function onFileChange(ftp:WatchEvent & readonly event, ftp:Caller caller) returns error? {
-        
-        do {
-            foreach ftp:FileInfo addedFile in event.addedFiles {
+public function main() returns error? {
+    do {
+        ftp:FileInfo[]|error fileList = ftpClient->list(path = incomingCcdaFileDir);
+        if fileList is ftp:FileInfo[] {
+            log:printInfo(string `Found ${fileList.length().toString()} files in FTP location`);
+            foreach ftp:FileInfo addedFile in fileList {
                 string fileName = addedFile.name;
-                log:printInfo(string`CCDA File added: ${fileName}`);
+                log:printInfo(string `CCDA File added: ${fileName}`);
                 stream<byte[] & readonly, io:Error?> fileStream = check ftpClient->get(path = addedFile.pathDecoded);
                 string fileContent = "";
                 log:printInfo("-------- Started processing file content --------");
                 check fileStream.forEach(function(byte[] & readonly chunk) {
-
                     string|error content = string:fromBytes(chunk);
                     if content is string {
                         fileContent += content;
@@ -133,10 +115,8 @@ service ftp:Service on CCDAFileService {
             log:printInfo("-------- FHIR Bundle deduplicated --------");
             log:printInfo("Deduplicated Bundle: ", deduplicatedContent = agentResponse.bundle);
             log:printInfo("Deduplicated Bundle Summary: ", deduplicatedSummary = agentResponse.summary);
-
-        } on fail error err {
-            return error("Error processing file", err);
         }
+    } on fail error err {
+        log:printError("Error in periodic file check", err);
     }
-
 }
