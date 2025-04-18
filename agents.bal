@@ -16,9 +16,9 @@
 
 import ballerinax/ai;
 
-final ai:AzureOpenAiProvider _deduplicateAgentModel = check new (serviceUrl = openAiServiceUrl, apiKey = openAiApiKey, deploymentId = openAiDeploymentId, apiVersion = openAiApiVersion);
-final ai:Agent deduplicateAgent = check new (
-    systemPrompt = {
+final ai:AzureOpenAiProvider _deduplicateAgentModel = check new (serviceUrl = openAiServiceUrl, apiKey = openAiApiKey, deploymentId = openAiDeploymentId, apiVersion = openAiApiVersion, temperature = 0);
+final ai:AgentConfiguration agentConfiguration = {
+    systemPrompt : {
         role: "FHIR Bundle deduplication assistant",
         instructions: string `
         You will receive a single JSON object representing a FHIR Bundle (resourceType: "Bundle", type: "transaction") with an array field entry. Each element of entry is an object with keys:
@@ -39,7 +39,7 @@ final ai:Agent deduplicateAgent = check new (
         - Otherwise, **keep** it.
 
         3. **Output Format**  
-        - Return ONLY a JSON object with the top‑level keys **bundle** and **summary**.
+        - Return ONLY a minfied JSON object with the top‑level keys **bundle** and **summary**.
             - **bundle**: the deduplicated Bundle, preserving:
                 - the original top‑level keys (resourceType, id, type)
                 - the original order of first occurrences of each unique resource  
@@ -48,7 +48,8 @@ final ai:Agent deduplicateAgent = check new (
                 - "resourceId": the id of the removed entry  
                 - "action": represent the action in a single word such as "REMOVED"  
                 - "description": a brief explanation of why it was removed
-        - ENSURE the output is **valid JSON**, with no comments or extraneous fields.
+        - ENSURE the output is ONLY a **VALID JSON**, with **NO** explanations, comments, or extraneous fields.
+        - If no duplicate resources are detected in the provided FHIR Bundle, return empty parentheses as the ONLY output.
 
         4. **Examples**  
         - Example 1: If two Observation entries are identical in all fields, keep only the first one.
@@ -75,13 +76,23 @@ final ai:Agent deduplicateAgent = check new (
             {"bundle":{"resourceType":"Bundle","id":"example-bundle","type":"transaction","entry":[{"resource":{"resourceType":"Patient","id":"example-patient-1","name":[{"use":"official","family":"Doe","given":["John"]}],"gender":"male","birthDate":"1990-01-01"},"request":{"method":"POST","url":"Patient"}},{"resource":{"resourceType":"Observation","id":"example-observation-1","status":"final","code":{"coding":[{"system":"http://loinc.org","code":"29463-7","display":"Body temperature"}]},"valueQuantity":{"value":37,"unit":"C","system":"http://unitsofmeasure.org","code":"Cel"},"subject":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Observation"}},{"resource":{"resourceType":"Encounter","id":"example-encounter-1","status":"in-progress","class":{"code":"AMB","display":"ambulatory"},"patient":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Encounter"}}]},"summary":[{"resourceType":"Encounter","resourceId":"example-encounter-2","action":"REMOVED","description":"Entry is identical to the Encounter resource with ID example-encounter-1"}]}
             ${"```"}
 
+        - Example 3: If no duplicate entries are present, return empty parentheses.
+            **Input**:
+            ${"```"}json
+            {"resourceType":"Bundle","id":"example-bundle","type":"transaction","entry":[{"resource":{"resourceType":"Patient","id":"example-patient-1","name":[{"use":"official","family":"Doe","given":["John"]}],"gender":"male","birthDate":"1990-01-01"},"request":{"method":"POST","url":"Patient"}},{"resource":{"resourceType":"Observation","id":"example-observation-1","status":"final","code":{"coding":[{"system":"http://loinc.org","code":"29463-7","display":"Body temperature"}]},"valueQuantity":{"value":37,"unit":"C","system":"http://unitsofmeasure.org","code":"Cel"},"subject":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Observation"}},{"resource":{"resourceType":"Encounter","id":"example-encounter-1","status":"in-progress","class":{"code":"AMB","display":"ambulatory"},"patient":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Encounter"}}]}
+            ${"```"}
+
+            **Expected Output**:
+            ${"```"}json
+            ()
+            ${"```"}
 
         5. **Validation**:
         - Do not alter any field values.
         - Preserve the original ordering of the first occurrences.
-        - Ensure your JSON is syntactically correct.`
+        - Revalidate and ENSURE that your JSON is minified and syntactically correct.`
     },
-    memory = new ai:MessageWindowChatMemory(10), 
-    model = _deduplicateAgentModel, 
-    tools = []
-);
+    memory : new ai:MessageWindowChatMemory(10), 
+    model : _deduplicateAgentModel, 
+    tools : []
+};

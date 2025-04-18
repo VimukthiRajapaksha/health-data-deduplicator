@@ -45,13 +45,25 @@ function processCcdaFileContent(xml content) returns r4:Bundle|error? {
     }
 }
 
-function deduplicateBundle(r4:Bundle bundle) returns DeduplicatedAgentResponse|error {
-
+isolated function deduplicateBundle(r4:Bundle bundle) returns DeduplicatedAgentResponse|error {
     string agentResponse = check deduplicateAgent->run(query = bundle.toJsonString(), sessionId = uuid:createType4AsString());
     agentResponse = re `${"```"}json`.replace(agentResponse, "");
     agentResponse = re `${"```"}`.replace(agentResponse, "");
 
-    log:printInfo("FHIR Bundle deduplication successful: ", openAiAgentResponse = agentResponse);
+    log:printDebug("FHIR Bundle deduplication successful: ", openAiAgentResponse = agentResponse);
 
-    return agentResponse.ensureType();
+    if agentResponse.trim().length() != 0 {
+        json|error jsonAgentResponse = agentResponse.trim().fromJsonString();
+        if jsonAgentResponse is json {
+            DeduplicatedAgentResponse? deduplicatedAgentResponse = check jsonAgentResponse.cloneWithType();
+            if deduplicatedAgentResponse is DeduplicatedAgentResponse {
+                return deduplicatedAgentResponse;
+            }
+        } else {
+            log:printError("Error parsing agent response to json ", 'error = jsonAgentResponse);
+        }
+    } else {
+        log:printDebug("Received an empty deduplication response");
+    }
+    return {bundle: bundle, summary: []};
 }
