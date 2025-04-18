@@ -34,7 +34,7 @@ type ResourceSummary record {|
     map<json> fields;
 |};
 
-type DuplicatedEntry record {|
+type DuplicateEntry record {|
     string id;
     string resourceType;
     float confidence;

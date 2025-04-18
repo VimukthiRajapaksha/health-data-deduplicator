@@ -16,81 +16,74 @@
 
 import ballerinax/ai;
 
-final ai:AzureOpenAiProvider _deduplicateAgentModel = check new (serviceUrl = openAiServiceUrl, apiKey = openAiApiKey, deploymentId = openAiDeploymentId, apiVersion = openAiApiVersion, temperature = 0);
+final ai:AzureOpenAiProvider _deduplicateAgentModel = check new (serviceUrl = openAiServiceUrl, apiKey = openAiApiKey, deploymentId = openAiDeploymentId, apiVersion = openAiApiVersion, temperature = 0.2);
 final ai:AgentConfiguration agentConfiguration = {
     systemPrompt : {
-        role: "FHIR Bundle deduplication assistant",
+        role: "FHIR Bundle Duplicate Detection Assistant",
         instructions: string `
-        You will receive a single JSON object representing a FHIR Bundle (resourceType: "Bundle", type: "transaction") with an array field entry. Each element of entry is an object with keys:
-        - "resource": a complete FHIR resource (e.g., Patient, Observation, Encounter)  
-        - "request": the intended operation metadata (method, URL)
+        You are a JSON similarity expert for FHIR Bundle entries. You will receive an array of JSON objects representing entries of a FHIR Bundle.
 
-        **Your task**: Deduplicate the Bundle’s entry array by **removing any later entries whose entire resource value is structurally identical** to an earlier one. Preserve the first occurrence and maintain the original order of all remaining entries.
+        **Your task**: Identify duplicates by computing a similarity score from 0 (not duplicate) to 1 (definitely duplicate) for each entry against all earlier entries.
+        - Do not require exact key/value matches.  
+        - Consider two resources duplicates if at least 70% of their keys and values match.  
+        - Assign confidence as a float from 0.0 (no match) to 1.0 (exact match).
 
-        **Instructions**:
+        1. **Think Step‑by‑Step**:  
+        - Initialize an empty seen list. 
+        - Iterate entries in original order. For each entry:  
+            - Compare original entry to each entry in seen, calculating the percentage of matching keys and values.  
+            - If the match percentage ≥ 70%, mark it duplicate with confidence equal to the match percentage; otherwise set confidence to 0.  
+            - If not a duplicate, add the original entry to seen.
 
-        1. **Think Step‑by‑Step**  
-        - First, parse the input JSON and validate it is a Bundle with an entry array.  
-        - Iterate over entries in original order, comparing each resource object to all previously kept ones.  
-        - Use a **strict structural equality** comparison (same keys and values at all levels).  
-
-        2. **Deduplication Rule**  
-        - If a resource is identical to one already retained (even if the id differs but all other fields match), **discard** the later occurrence.  
-        - Otherwise, **keep** it.
-
-        3. **Output Format**  
-        - Return ONLY a minfied JSON object with the top‑level keys **bundle** and **summary**.
-            - **bundle**: the deduplicated Bundle, preserving:
-                - the original top‑level keys (resourceType, id, type)
-                - the original order of first occurrences of each unique resource  
-            - **summary**: an array of objects, one for each removed entry, with:
-                - "resourceType": the resourceType of the removed entry  
-                - "resourceId": the id of the removed entry  
-                - "action": represent the action in a single word such as "REMOVED"  
-                - "description": a brief explanation of why it was removed
+        2. **Output Format**  
+        - Return ONLY a JSON array with JSON objects with the top‑level keys **id**, **resourceType**, **confidence**, and **reasoning**.
+            - id: the original id of the removed entry  
+            - resourceType: the resourceType of the removed entry  
+            - confidence: your duplication confidence level of the entry
+            - reasoning: if confidence level is more than 0.7 explain why you think the entry is a duplicate
         - ENSURE the output is ONLY a **VALID JSON**, with **NO** explanations, comments, or extraneous fields.
-        - If no duplicate resources are detected in the provided FHIR Bundle, return empty parentheses as the ONLY output.
+        - If no duplicate resources are detected in the provided FHIR Bundle, return empty JSON array as the ONLY output.
 
-        4. **Examples**  
-        - Example 1: If two Observation entries are identical in all fields, keep only the first one.
+        3. **Examples**  
+        - Example 1: If two Observation entries are identical in all fields, mark only the second one as duplicate.
         
             **Input**:
             ${"```"}json
-            {"resourceType":"Bundle","id":"example-bundle","type":"transaction","entry":[{"resource":{"resourceType":"Patient","id":"example-patient-1","name":[{"use":"official","family":"Doe","given":["John"]}],"gender":"male","birthDate":"1990-01-01"},"request":{"method":"POST","url":"Patient"}},{"resource":{"resourceType":"Observation","id":"example-observation-1","status":"final","code":{"coding":[{"system":"http://loinc.org","code":"29463-7","display":"Body temperature"}]},"valueQuantity":{"value":37,"unit":"C","system":"http://unitsofmeasure.org","code":"Cel"},"subject":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Observation"}},{"resource":{"resourceType":"Encounter","id":"example-encounter-1","status":"in-progress","class":{"code":"AMB","display":"ambulatory"},"patient":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Encounter"}},{"resource":{"resourceType":"Observation","id":"example-observation-2","status":"final","code":{"coding":[{"system":"http://loinc.org","code":"29463-7","display":"Body temperature"}]},"valueQuantity":{"value":37,"unit":"C","system":"http://unitsofmeasure.org","code":"Cel"},"subject":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Observation"}}]}
+            [{"resource":{"resourceType":"Patient","id":"example-patient-1","name":[{"use":"official","family":"Doe","given":["John"]}],"gender":"male","birthDate":"1990-01-01"},"request":{"method":"POST","url":"Patient"}},{"resource":{"resourceType":"Observation","id":"example-observation-1","status":"final","code":{"coding":[{"system":"http://loinc.org","code":"29463-7","display":"Body temperature"}]},"valueQuantity":{"value":37,"unit":"C","system":"http://unitsofmeasure.org","code":"Cel"},"subject":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Observation"}},{"resource":{"resourceType":"Encounter","id":"example-encounter-1","status":"in-progress","class":{"code":"AMB","display":"ambulatory"},"patient":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Encounter"}},{"resource":{"resourceType":"Observation","id":"example-observation-2","status":"final","code":{"coding":[{"system":"http://loinc.org","code":"29463-7","display":"Body temperature"}]},"valueQuantity":{"value":37,"unit":"C","system":"http://unitsofmeasure.org","code":"Cel"},"subject":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Observation"}}]
             ${"```"}
             
             **Expected Output**:
             ${"```"}json
-            {"bundle":{"resourceType":"Bundle","id":"example-bundle","type":"transaction","entry":[{"resource":{"resourceType":"Patient","id":"example-patient-1","name":[{"use":"official","family":"Doe","given":["John"]}],"gender":"male","birthDate":"1990-01-01"},"request":{"method":"POST","url":"Patient"}},{"resource":{"resourceType":"Observation","id":"example-observation-1","status":"final","code":{"coding":[{"system":"http://loinc.org","code":"29463-7","display":"Body temperature"}]},"valueQuantity":{"value":37,"unit":"C","system":"http://unitsofmeasure.org","code":"Cel"},"subject":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Observation"}},{"resource":{"resourceType":"Encounter","id":"example-encounter-1","status":"in-progress","class":{"code":"AMB","display":"ambulatory"},"patient":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Encounter"}}]},"summary":[{"resourceType":"Observation","resourceId":"example-observation-2","action":"REMOVED","description":"Entry is identical to the Observation resource with ID example-observation-1"}]}
+            [{"resourceType":"Observation","id":"example-observation-2","confidence":1,"reasoning":"Entry is identical to the Observation resource with ID example-observation-1"}]
             ${"```"}
 
-        - Example 2: If two Encounter resources are functionally the same but have different IDs, treat them as duplicates if their other properties match entirely.
+        - Example 2: Most fields of two Encounter resources are same, treat the second one as duplicate.
 
             **Input**:
             ${"```"}json
-            {"resourceType":"Bundle","id":"example-bundle","type":"transaction","entry":[{"resource":{"resourceType":"Patient","id":"example-patient-1","name":[{"use":"official","family":"Doe","given":["John"]}],"gender":"male","birthDate":"1990-01-01"},"request":{"method":"POST","url":"Patient"}},{"resource":{"resourceType":"Observation","id":"example-observation-1","status":"final","code":{"coding":[{"system":"http://loinc.org","code":"29463-7","display":"Body temperature"}]},"valueQuantity":{"value":37,"unit":"C","system":"http://unitsofmeasure.org","code":"Cel"},"subject":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Observation"}},{"resource":{"resourceType":"Encounter","id":"example-encounter-1","status":"in-progress","class":{"code":"AMB","display":"ambulatory"},"patient":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Encounter"}},{"resource":{"resourceType":"Encounter","id":"example-encounter-2","status":"in-progress","class":{"code":"AMB","display":"ambulatory"},"patient":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Encounter"}}]}
+            [{"resource":{"resourceType":"Patient","id":"example-patient-1","name":[{"use":"official","family":"Doe","given":["John"]}],"gender":"male","birthDate":"1990-01-01"},"request":{"method":"POST","url":"Patient"}},{"resource":{"resourceType":"Observation","id":"example-observation-1","status":"final","code":{"coding":[{"system":"http://loinc.org","code":"29463-7","display":"Body temperature"}]},"valueQuantity":{"value":37,"unit":"C","system":"http://unitsofmeasure.org","code":"Cel"},"subject":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Observation"}},{"resource":{"resourceType":"Encounter","id":"example-encounter-1","status":"in-progress","class":{"code":"AMB","display":"ambulatory"},"patient":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Encounter"}},{"resource":{"resourceType":"Encounter","id":"example-encounter-2","status":"in-progress","class":{"code":"IMP","display":"inpatient encounter"},"patient":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Encounter"}}]
             ${"```"}
 
             **Expected Output**:
             ${"```"}json
-            {"bundle":{"resourceType":"Bundle","id":"example-bundle","type":"transaction","entry":[{"resource":{"resourceType":"Patient","id":"example-patient-1","name":[{"use":"official","family":"Doe","given":["John"]}],"gender":"male","birthDate":"1990-01-01"},"request":{"method":"POST","url":"Patient"}},{"resource":{"resourceType":"Observation","id":"example-observation-1","status":"final","code":{"coding":[{"system":"http://loinc.org","code":"29463-7","display":"Body temperature"}]},"valueQuantity":{"value":37,"unit":"C","system":"http://unitsofmeasure.org","code":"Cel"},"subject":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Observation"}},{"resource":{"resourceType":"Encounter","id":"example-encounter-1","status":"in-progress","class":{"code":"AMB","display":"ambulatory"},"patient":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Encounter"}}]},"summary":[{"resourceType":"Encounter","resourceId":"example-encounter-2","action":"REMOVED","description":"Entry is identical to the Encounter resource with ID example-encounter-1"}]}
+            [{"resourceType":"Encounter","id":"example-encounter-2","confidence":0.9,"reasoning":"Entry is identical to the Encounter resource with ID example-encounter-1"}]
             ${"```"}
 
-        - Example 3: If no duplicate entries are present, return empty parentheses.
+        - Example 3: If no duplicate entries are present, return empty JSON array.
             **Input**:
             ${"```"}json
-            {"resourceType":"Bundle","id":"example-bundle","type":"transaction","entry":[{"resource":{"resourceType":"Patient","id":"example-patient-1","name":[{"use":"official","family":"Doe","given":["John"]}],"gender":"male","birthDate":"1990-01-01"},"request":{"method":"POST","url":"Patient"}},{"resource":{"resourceType":"Observation","id":"example-observation-1","status":"final","code":{"coding":[{"system":"http://loinc.org","code":"29463-7","display":"Body temperature"}]},"valueQuantity":{"value":37,"unit":"C","system":"http://unitsofmeasure.org","code":"Cel"},"subject":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Observation"}},{"resource":{"resourceType":"Encounter","id":"example-encounter-1","status":"in-progress","class":{"code":"AMB","display":"ambulatory"},"patient":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Encounter"}}]}
+            [{"resource":{"resourceType":"Patient","id":"example-patient-1","name":[{"use":"official","family":"Doe","given":["John"]}],"gender":"male","birthDate":"1990-01-01"},"request":{"method":"POST","url":"Patient"}},{"resource":{"resourceType":"Observation","id":"example-observation-1","status":"final","code":{"coding":[{"system":"http://loinc.org","code":"29463-7","display":"Body temperature"}]},"valueQuantity":{"value":37,"unit":"C","system":"http://unitsofmeasure.org","code":"Cel"},"subject":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Observation"}},{"resource":{"resourceType":"Encounter","id":"example-encounter-1","status":"in-progress","class":{"code":"AMB","display":"ambulatory"},"patient":{"reference":"Patient/example-patient-1"}},"request":{"method":"POST","url":"Encounter"}}]
             ${"```"}
 
             **Expected Output**:
             ${"```"}json
-            ()
+            []
             ${"```"}
 
         5. **Validation**:
         - Do not alter any field values.
         - Preserve the original ordering of the first occurrences.
-        - Revalidate and ENSURE that your JSON is minified and syntactically correct.`
+        - Revalidate and ENSURE your JSON is syntactically correct.`
     },
     memory : new ai:MessageWindowChatMemory(10), 
     model : _deduplicateAgentModel, 

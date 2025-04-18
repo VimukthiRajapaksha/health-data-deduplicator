@@ -45,19 +45,19 @@ function processCcdaFileContent(xml content) returns r4:Bundle|error? {
     }
 }
 
-isolated function deduplicateBundle(r4:Bundle bundle) returns DeduplicatedAgentResponse|error {
-    string agentResponse = check deduplicateAgent->run(query = bundle.toJsonString(), sessionId = uuid:createType4AsString());
+isolated function getDuplicateEntries(ResourceSummary[] resourceSummaries) returns DuplicateEntry[]|error {
+    string agentResponse = check deduplicateAgent->run(query = resourceSummaries.toJsonString(), sessionId = uuid:createType4AsString());
     agentResponse = re `${"```"}json`.replace(agentResponse, "");
     agentResponse = re `${"```"}`.replace(agentResponse, "");
 
-    log:printInfo("FHIR Bundle deduplication successful: ", openAiAgentResponse = agentResponse);
+    log:printDebug("FHIR Bundle duplicate identification successful: ", openAiAgentResponse = agentResponse);
 
     if agentResponse.trim().length() != 0 {
         json|error jsonAgentResponse = agentResponse.trim().fromJsonString();
         if jsonAgentResponse is json {
-            DeduplicatedAgentResponse? deduplicatedAgentResponse = check jsonAgentResponse.cloneWithType();
-            if deduplicatedAgentResponse is DeduplicatedAgentResponse {
-                return deduplicatedAgentResponse;
+            DuplicateEntry[]? duplicateEntries = check jsonAgentResponse.cloneWithType();
+            if duplicateEntries is DuplicateEntry[] {
+                return duplicateEntries;
             }
         } else {
             log:printError("Error parsing agent response to json ", 'error = jsonAgentResponse);
@@ -65,7 +65,7 @@ isolated function deduplicateBundle(r4:Bundle bundle) returns DeduplicatedAgentR
     } else {
         log:printDebug("Received an empty deduplication response");
     }
-    return {bundle: bundle, summary: []};
+    return [];
 }
 
 function constructResourceSummary(r4:Bundle bundle) returns ResourceSummary[]|error {
@@ -216,24 +216,27 @@ function getResourceSignature(ResourceSummary summary) returns string?|error {
     return resourceSignature;
 }
 
-function removeDuplicatesFromBundle(DuplicatedEntry[] entries, r4:Bundle bundle) returns r4:Bundle {
-    r4:BundleEntry[] dedupBundleEntries = [];
-    r4:Bundle finalBundle = {'type: "transaction", 'entry: dedupBundleEntries};
-    r4:BundleEntry[] bundleEntries = bundle.entry ?: [];
-    // Iterate through the entries and remove duplicates, inside need to iterate through duplicated entries
-    foreach r4:BundleEntry entry in bundleEntries {
-        if entry?.'resource is r4:Resource {
-            r4:Resource resourceResult = <r4:Resource>entry?.'resource;
-            string? resourceId = resourceResult.id;
-            if resourceId is string {
-                foreach var duplicatedEntry in entries {
-                    if duplicatedEntry.id != resourceId {
-                        dedupBundleEntries.push(entry);
+function removeDuplicatesFromBundle(DuplicateEntry[] entries, r4:Bundle bundle) returns r4:Bundle {
+    final r4:BundleEntry[] bundleEntries = bundle.entry ?: [];
+    final r4:BundleEntry[] deduplicatedBundleEntries = bundleEntries.clone();
+    
+    foreach DuplicateEntry duplicateEntry in entries {
+        foreach r4:BundleEntry bundleEntry in bundleEntries {
+            if bundleEntry?.'resource is r4:Resource {
+                r4:Resource resourceResult = <r4:Resource>bundleEntry?.'resource;
+                string? resourceId = resourceResult.id;
+                if resourceId is string {
+                    if duplicateEntry.id == resourceId {
+                        int? index = deduplicatedBundleEntries.lastIndexOf(bundleEntry);
+                        if index is int {
+                            _ = deduplicatedBundleEntries.remove(index);
+                        }
                     }
                 }
             }
         }
     }
-    return finalBundle;
+
+    return {'type: "transaction", 'entry: deduplicatedBundleEntries};
 }
 
