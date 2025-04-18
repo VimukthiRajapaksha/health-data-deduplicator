@@ -116,6 +116,11 @@ public function main() returns error? {
             if constructResourceSummaryResult is ResourceSummary[] {
                 log:printInfo("-------- FHIR Bundle resource summary constructed --------");
                 log:printInfo("Resource Summary: ", resourceSummary = constructResourceSummaryResult);
+                
+                DuplicateEntry[] duplicatedEntries = check getDuplicateEntries(constructResourceSummaryResult);  
+                log:printInfo("-------- FHIR Bundle deduplicate entries identified --------");
+                log:printInfo("Deduplicate Entries: ", deduplicatedContent = duplicatedEntries);
+
                 //iterate through the resource summary and call getResourceSignature
                 foreach ResourceSummary resourceSummary in constructResourceSummaryResult {
                     string?|error resourceSignature = getResourceSignature(resourceSummary);
@@ -127,14 +132,8 @@ public function main() returns error? {
                 log:printError("Error constructing resource summary", constructResourceSummaryResult);
             }
 
-            DeduplicatedAgentResponse agentResponse = check deduplicateBundle(finalBundle);
-            log:printInfo("-------- FHIR Bundle deduplicated --------");
-            log:printInfo("Deduplicated Bundle: ", deduplicatedContent = agentResponse.bundle);
-            log:printInfo("Deduplicated Bundle Summary: ", deduplicatedSummary = agentResponse.summary);
-
             //logic to handle removing duplicates
             //iterate through the deduplicated summary and remove duplicates from the final bundle
-            DuplicatedEntry[] duplicatedEntries = [];   
 
         }
     } on fail error err {
