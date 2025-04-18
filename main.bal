@@ -18,6 +18,7 @@ import ballerina/ftp;
 import ballerina/io;
 import ballerinax/health.fhir.r4;
 import ballerina/log;
+import ballerinax/ai;
 
 // FTP Client configuration
 final ftp:ClientConfiguration clientConfig = {
@@ -36,12 +37,16 @@ final ftp:ClientConfiguration clientConfig = {
 // Initialize FTP client
 final ftp:Client ftpClient;
 
+// Initialize OpenAI agent
+final ai:Agent deduplicateAgent;
+
 function init() returns error? {
     do {
         ftpClient = check new (clientConfig);
+        deduplicateAgent = check new (agentConfiguration);
     } on fail error err {
-        log:printError("Failed to initialize FTP client", err);
-        return error("Failed to initialize FTP client", err);
+        log:printError("Failed to initialize clients. Caused by, ", err);
+        return error("Failed to initialize clients. Caused by, ", err);
     }
 }
 
@@ -126,8 +131,8 @@ service ftp:Service on CCDAFileService {
 
             DeduplicatedAgentResponse agentResponse = check deduplicateBundle(finalBundle);
             log:printInfo("-------- FHIR Bundle deduplicated --------");
-            log:printInfo("Deduplicated Bundle: ", bundleContent = agentResponse.bundle);
-            log:printInfo("Deduplicated Bundle Summary: ", bundleContent = agentResponse.summary);
+            log:printInfo("Deduplicated Bundle: ", deduplicatedContent = agentResponse.bundle);
+            log:printInfo("Deduplicated Bundle Summary: ", deduplicatedSummary = agentResponse.summary);
 
         } on fail error err {
             return error("Error processing file", err);
