@@ -110,7 +110,7 @@ public function main() returns error? {
                 }
             }
             log:printInfo("-------- FHIR Bundle constructed --------");
-            log:printInfo("Final Bundle: ", bundleContent = finalBundle);
+            log:printInfo("Pre Deduplication Final Bundle: ", bundleContent = finalBundle);
 
             ResourceSummary[]|error constructResourceSummaryResult = constructResourceSummary(finalBundle);
             if constructResourceSummaryResult is ResourceSummary[] {
@@ -121,20 +121,18 @@ public function main() returns error? {
                 log:printInfo("-------- FHIR Bundle deduplicate entries identified --------");
                 log:printInfo("Deduplicate Entries: ", deduplicatedContent = duplicatedEntries);
 
+                finalBundle = removeDuplicatesFromBundle(duplicatedEntries, finalBundle);
+                log:printInfo("Post Deduplication Final Bundle: ", bundleContent = finalBundle);
                 //iterate through the resource summary and call getResourceSignature
-                foreach ResourceSummary resourceSummary in constructResourceSummaryResult {
-                    string?|error resourceSignature = getResourceSignature(resourceSummary);
-                    if resourceSignature is string {
-                        resourceSignatureMap[resourceSignature] = resourceSummary;
-                    }
-                }
+                // foreach ResourceSummary resourceSummary in constructResourceSummaryResult {
+                //     string?|error resourceSignature = getResourceSignature(resourceSummary);
+                //     if resourceSignature is string {
+                //         resourceSignatureMap[resourceSignature] = resourceSummary;
+                //     }
+                // }
             } else {
                 log:printError("Error constructing resource summary", constructResourceSummaryResult);
             }
-
-            //logic to handle removing duplicates
-            //iterate through the deduplicated summary and remove duplicates from the final bundle
-
         }
     } on fail error err {
         log:printError("Error in periodic file check", err);

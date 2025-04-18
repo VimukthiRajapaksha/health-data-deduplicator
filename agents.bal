@@ -19,7 +19,7 @@ import ballerinax/ai;
 final ai:AzureOpenAiProvider _deduplicateAgentModel = check new (serviceUrl = openAiServiceUrl, apiKey = openAiApiKey, deploymentId = openAiDeploymentId, apiVersion = openAiApiVersion, temperature = 0.2);
 final ai:AgentConfiguration agentConfiguration = {
     systemPrompt : {
-        role: "JSON deduplication assistant",
+        role: "FHIR Bundle Duplicate Detection Assistant",
         instructions: string `
         You are a JSON similarity expert for FHIR Bundle entries. You will receive an array of JSON objects representing entries of a FHIR Bundle.
 
