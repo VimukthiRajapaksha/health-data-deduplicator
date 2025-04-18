@@ -53,6 +53,7 @@ function init() returns error? {
 public function main() returns error? {
     do {
         ftp:FileInfo[]|error fileList = ftpClient->list(path = incomingCcdaFileDir);
+        map<ResourceSummary> resourceSignatureMap = {};
         if fileList is ftp:FileInfo[] {
             log:printInfo(string `Found ${fileList.length().toString()} files in FTP location`);
             foreach ftp:FileInfo addedFile in fileList {
@@ -111,10 +112,30 @@ public function main() returns error? {
             log:printInfo("-------- FHIR Bundle constructed --------");
             log:printInfo("Final Bundle: ", bundleContent = finalBundle);
 
+            ResourceSummary[]|error constructResourceSummaryResult = constructResourceSummary(finalBundle);
+            if constructResourceSummaryResult is ResourceSummary[] {
+                log:printInfo("-------- FHIR Bundle resource summary constructed --------");
+                log:printInfo("Resource Summary: ", resourceSummary = constructResourceSummaryResult);
+                //iterate through the resource summary and call getResourceSignature
+                foreach ResourceSummary resourceSummary in constructResourceSummaryResult {
+                    string?|error resourceSignature = getResourceSignature(resourceSummary);
+                    if resourceSignature is string {
+                        resourceSignatureMap[resourceSignature] = resourceSummary;
+                    }
+                }
+            } else {
+                log:printError("Error constructing resource summary", constructResourceSummaryResult);
+            }
+
             DeduplicatedAgentResponse agentResponse = check deduplicateBundle(finalBundle);
             log:printInfo("-------- FHIR Bundle deduplicated --------");
             log:printInfo("Deduplicated Bundle: ", deduplicatedContent = agentResponse.bundle);
             log:printInfo("Deduplicated Bundle Summary: ", deduplicatedSummary = agentResponse.summary);
+
+            //logic to handle removing duplicates
+            //iterate through the deduplicated summary and remove duplicates from the final bundle
+            DuplicatedEntry[] duplicatedEntries = [];   
+
         }
     } on fail error err {
         log:printError("Error in periodic file check", err);

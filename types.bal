@@ -27,3 +27,16 @@ type DeduplicatedAgentResponse record {|
     r4:Bundle bundle;
     DeduplicatedAgentSummary[] summary;
 |};
+
+type ResourceSummary record {|
+    string resourceId?;
+    string resourceType;
+    map<json> fields;
+|};
+
+type DuplicatedEntry record {|
+    string id;
+    string resourceType;
+    float confidence;
+    string reasoning;
+|};
