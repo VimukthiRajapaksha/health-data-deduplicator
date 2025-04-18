@@ -54,9 +54,13 @@ function init() returns error? {
 public function main() returns error? {
     do {
         ftp:FileInfo[]|error fileList = ftpClient->list(path = incomingCcdaFileDir);
-        map<ResourceSummary> resourceSignatureMap = {};
         if fileList is ftp:FileInfo[] {
             log:printInfo(string `Found ${fileList.length().toString()} files in FTP location`);
+            if fileList.length() == 0 {
+                log:printInfo("No files found in FTP location");
+                return;
+            }
+            boolean isPatientAdded = false;
             foreach ftp:FileInfo addedFile in fileList {
                 string fileName = addedFile.name;
                 log:printInfo(string `CCDA File added: ${fileName}`);
@@ -94,7 +98,22 @@ public function main() returns error? {
                     r4:Bundle processedBundle = <r4:Bundle>processResponse;
                     r4:BundleEntry[]? entry = processedBundle.entry;
                     if entry is r4:BundleEntry[] {
-                        (<r4:BundleEntry[]>finalBundle.entry).push(...entry);
+                        // iterate through the entries and add to finalBundle
+                        foreach r4:BundleEntry bundleEntry in entry {
+                            if bundleEntry?.'resource is r4:Resource {
+                                r4:Resource resourceResult = <r4:Resource>bundleEntry?.'resource;
+                                string resourceType = resourceResult.resourceType;
+                                if resourceType.equalsIgnoreCaseAscii("Patient") {
+                                    if !isPatientAdded {
+                                        isPatientAdded = true;
+                                        log:printDebug("Adding Patient resource to final bundle");
+                                        (<r4:BundleEntry[]>finalBundle.entry).push(bundleEntry);
+                                    }
+                                } else {
+                                    (<r4:BundleEntry[]>finalBundle.entry).push(bundleEntry);
+                                }
+                            }
+                        }
                     }
 
                     ftp:Error? deletedFile = ftpClient->delete(path = addedFile.pathDecoded);
@@ -113,26 +132,19 @@ public function main() returns error? {
             log:printInfo("-------- FHIR Bundle constructed --------");
             log:printInfo("Pre Deduplication Final Bundle: ", bundleContent = finalBundle);
 
-            ResourceSummary[]|error constructResourceSummaryResult = constructResourceSummary(finalBundle);
-            if constructResourceSummaryResult is ResourceSummary[] {
+            ResourceSummary[]|error resourceSummaryResult = constructResourceSummary(finalBundle);
+            if resourceSummaryResult is ResourceSummary[] {
                 log:printInfo("-------- FHIR Bundle resource summary constructed --------");
-                log:printInfo("Resource Summary: ", resourceSummary = constructResourceSummaryResult);
-                
-                DuplicateEntry[] duplicatedEntries = check getDuplicateEntries(constructResourceSummaryResult);  
+                log:printInfo("Resource Summary: ", resourceSummary = resourceSummaryResult);
+
+                DuplicateEntry[] duplicatedEntries = check getDuplicateEntries(resourceSummaryResult);
                 log:printInfo("-------- FHIR Bundle deduplicate entries identified --------");
                 log:printInfo("Deduplicate Entries: ", deduplicatedContent = duplicatedEntries);
 
                 finalBundle = removeDuplicatesFromBundle(duplicatedEntries, finalBundle);
                 log:printInfo("Post Deduplication Final Bundle: ", bundleContent = finalBundle);
-                //iterate through the resource summary and call getResourceSignature
-                // foreach ResourceSummary resourceSummary in constructResourceSummaryResult {
-                //     string?|error resourceSignature = getResourceSignature(resourceSummary);
-                //     if resourceSignature is string {
-                //         resourceSignatureMap[resourceSignature] = resourceSummary;
-                //     }
-                // }
             } else {
-                log:printError("Error constructing resource summary", constructResourceSummaryResult);
+                log:printError("Error constructing resource summary", resourceSummaryResult);
             }
         }
     } on fail error err {

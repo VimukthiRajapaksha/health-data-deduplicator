@@ -45,26 +45,45 @@ function processCcdaFileContent(xml content) returns r4:Bundle|error? {
     }
 }
 
-isolated function getDuplicateEntries(ResourceSummary[] resourceSummaries) returns DuplicateEntry[]|error {
-    string agentResponse = check deduplicateAgent->run(query = resourceSummaries.toJsonString(), sessionId = uuid:createType4AsString());
-    agentResponse = re `${"```"}json`.replace(agentResponse, "");
-    agentResponse = re `${"```"}`.replace(agentResponse, "");
+function getDuplicateEntries(ResourceSummary[] resourceSummaries) returns DuplicateEntry[]|error {
+    if deduplicationMode == exact {
+        DuplicateEntry[] duplicateEntries = [];
+        foreach ResourceSummary resourceSummary in resourceSummaries {
+            boolean isDuplicate = check markDuplicateEntry(resourceSummary);
+            if isDuplicate {
+                DuplicateEntry duplicateEntry = {
+                    id: <string>resourceSummary.resourceId,
+                    resourceType: resourceSummary.resourceType,
+                    confidence: 1.0,
+                    reasoning: "Exact match"
+                };
+                duplicateEntries.push(duplicateEntry);
+                log:printDebug("Duplicate entry found", duplicateEntry = duplicateEntry);
+            }
+        }
+        return duplicateEntries;
+    } else if deduplicationMode == probabilistic {
+        string agentResponse = check deduplicateAgent->run(query = resourceSummaries.toJsonString(), sessionId = uuid:createType4AsString());
+        agentResponse = re `${"```"}json`.replace(agentResponse, "");
+        agentResponse = re `${"```"}`.replace(agentResponse, "");
 
-    log:printDebug("FHIR Bundle duplicate identification successful: ", openAiAgentResponse = agentResponse);
+        log:printDebug("FHIR Bundle duplicate identification successful: ", openAiAgentResponse = agentResponse);
 
-    if agentResponse.trim().length() != 0 {
-        json|error jsonAgentResponse = agentResponse.trim().fromJsonString();
-        if jsonAgentResponse is json {
-            DuplicateEntry[]? duplicateEntries = check jsonAgentResponse.cloneWithType();
-            if duplicateEntries is DuplicateEntry[] {
-                return duplicateEntries;
+        if agentResponse.trim().length() != 0 {
+            json|error jsonAgentResponse = agentResponse.trim().fromJsonString();
+            if jsonAgentResponse is json {
+                DuplicateEntry[]? duplicateEntries = check jsonAgentResponse.cloneWithType();
+                if duplicateEntries is DuplicateEntry[] {
+                    return duplicateEntries;
+                }
+            } else {
+                log:printError("Error parsing agent response to json ", 'error = jsonAgentResponse);
             }
         } else {
-            log:printError("Error parsing agent response to json ", 'error = jsonAgentResponse);
+            log:printDebug("Received an empty deduplication response");
         }
-    } else {
-        log:printDebug("Received an empty deduplication response");
     }
+
     return [];
 }
 
@@ -166,7 +185,7 @@ function constructResourceSummary(r4:Bundle bundle) returns ResourceSummary[]|er
     return resourceSummaries;
 }
 
-function getResourceSignature(ResourceSummary summary) returns string?|error {
+function markDuplicateEntry(ResourceSummary summary) returns boolean|error {
     string resourceSignature = "";
     //add match case for each resource type
     match summary.resourceType {
@@ -179,9 +198,9 @@ function getResourceSignature(ResourceSummary summary) returns string?|error {
                 if identifier is json[] {
                     // Assuming the first identifier is the most relevant
                     // Check if the identifier has a value
-                    if identifier[0].value is string {
+                    if identifier.length() > 0 && identifier[0].value is string {
                         string identifierVal = check identifier[0].value;
-                        return string `${summary.resourceType.toString()}|${identifierVal}`;
+                        resourceSignature = string `${resourceSignature}|${summary.resourceType.toString()}|${identifierVal}`;
                     }
                 }
             } else if fields.hasKey("name") {
@@ -194,9 +213,9 @@ function getResourceSignature(ResourceSummary summary) returns string?|error {
                         json|error givenNameArr = name[0].given;
                         // Check if the name has a given name
                         if givenNameArr is json[] {
-                            resourceSignature = string `${summary.resourceType.toString()}|${familyName}|${givenNameArr[0].toString()}`;
+                            resourceSignature = string `${resourceSignature}|${summary.resourceType.toString()}|${familyName}|${givenNameArr[0].toString()}`;
                         } else {
-                            resourceSignature = string `${summary.resourceType.toString()}|${familyName}`;
+                            resourceSignature = string `${resourceSignature}|${summary.resourceType.toString()}|${familyName}`;
                         }
                     }
                 }
@@ -214,20 +233,202 @@ function getResourceSignature(ResourceSummary summary) returns string?|error {
                 }
             }
         }
+        "Immunization" => {
+            // For Immunizations, use vaccineCode + identifier + occurrenceDateTime + patient
+            map<json> fields = summary.fields;
+            if fields.hasKey("vaccineCode") {
+                json? vaccineCode = fields["vaccineCode"];
+                if vaccineCode is json[] {
+                    // Assuming the first vaccineCode is the most relevant
+                    // Check if the vaccineCode has a code
+                    if vaccineCode[0].code is string {
+                        string vaccineCodeVal = check vaccineCode[0].code;
+                        resourceSignature = string `${resourceSignature}|${summary.resourceType.toString()}|${vaccineCodeVal}`;
+                    }
+                }
+            }
+            if fields.hasKey("identifier") {
+                json? identifier = fields["identifier"];
+                if identifier is json[] {
+                    // Assuming the first identifier is the most relevant
+                    // Check if the identifier has a value
+                    if identifier.length() > 0 && identifier[0].value is string {
+                        string identifierVal = check identifier[0].value;
+                        resourceSignature = string `${resourceSignature}|${identifierVal}`;
+                    }
+                }
+            }
+            if fields.hasKey("occurrenceDateTime") {
+                json? occurrenceDateTime = fields["occurrenceDateTime"];
+                if occurrenceDateTime is json {
+                    resourceSignature = string `${resourceSignature}|${occurrenceDateTime.toString()}`;
+                }
+            }
+            if fields.hasKey("patient") {
+                json? patient = fields["patient"];
+                if patient is json {
+                    resourceSignature = string `${resourceSignature}|${patient.toString()}`;
+                }
+            }
+        }
+        "DiagnosticReport" => {
+            // For DiagnosticReports, use code + subject + effectiveDateTime + identifier
+            map<json> fields = summary.fields;
+            if fields.hasKey("code") {
+                json? code = fields["code"];
+                if code is json[] {
+                    // Assuming the first code is the most relevant
+                    // Check if the code has a coding
+                    if code[0].coding is json[] {
+                        json|error codingVal = code[0].coding;
+                        if codingVal is json[] {
+                            // Assuming the first coding is the most relevant
+                            // Check if the coding has a code
+                            if codingVal[0].code is string {
+                                string codeVal = check codingVal[0].code;
+                                resourceSignature = string `${resourceSignature}|${summary.resourceType.toString()}|${codeVal}`;
+                            }
+                        }
+                    }
+                }
+            }
+            if fields.hasKey("effectivePeriod") {
+                json? effectivePeriod = fields["effectivePeriod"];
+                if effectivePeriod is json {
+                    resourceSignature = string `${resourceSignature}|${effectivePeriod.toString()}`;
+                }
+            }
+            if fields.hasKey("identifier") {
+                json? identifier = fields["identifier"];
+                if identifier is json[] {
+                    // Assuming the first identifier is the most relevant
+                    // Check if the identifier has a value
+                    if identifier.length() > 0 && identifier[0].value is string {
+                        string identifierVal = check identifier[0].value;
+                        resourceSignature = string `${resourceSignature}|${identifierVal}`;
+                    }
+                }
+            }
+        }
+        "AllergyIntolerance" => {
+            // For AllergyIntolerances, use reaction + identifier + recordedDate
+            map<json> fields = summary.fields;
+            if fields.hasKey("reaction") {
+                json? reaction = fields["reaction"];
+                if reaction is json[] {
+                    // Assuming the first reaction is the most relevant
+                    // Check if the reaction has a substance
+                    if reaction[0].substance is json[] {
+                        json|error substanceVal = reaction[0].substance;
+                        if substanceVal is json[] {
+                            // Assuming the first substance is the most relevant
+                            // Check if the substance has a code
+                            if substanceVal[0].code is string {
+                                string substanceCode = check substanceVal[0].code;
+                                resourceSignature = string `${resourceSignature}|${summary.resourceType.toString()}|${substanceCode}`;
+                            }
+                        }
+                    }
+                }
+            }
+            if fields.hasKey("identifier") {
+                json? identifier = fields["identifier"];
+                if identifier is json[] {
+                    // Assuming the first identifier is the most relevant
+                    // Check if the identifier has a value
+                    if identifier.length() > 0 && identifier[0].value is string {
+                        string identifierVal = check identifier[0].value;
+                        resourceSignature = string `${resourceSignature}|${identifierVal}`;
+                    }
+                }
+            }
+            if fields.hasKey("recordedDate") {
+                json? recordedDate = fields["recordedDate"];
+                if recordedDate is json {
+                    resourceSignature = string `${resourceSignature}|${recordedDate.toString()}`;
+                }
+            }
+        }
+        "MedicationRequest" => {
+            // For MedicationRequests, use medicationCodeableConcept + dosageInstruction
+            map<json> fields = summary.fields;
+            if fields.hasKey("medicationCodeableConcept") {
+                json? medicationCodeableConcept = fields["medicationCodeableConcept"];
+                if medicationCodeableConcept is json[] {
+                    // Assuming the first medicationCodeableConcept is the most relevant
+                    // Check if the medicationCodeableConcept has a code
+                    if medicationCodeableConcept[0].code is string {
+                        string medicationCode = check medicationCodeableConcept[0].code;
+                        resourceSignature = string `${resourceSignature}|${summary.resourceType.toString()}|${medicationCode}`;
+                    }
+                }
+            }
+            if fields.hasKey("dosageInstruction") {
+                json? dosageInstruction = fields["dosageInstruction"];
+                if dosageInstruction is json[] {
+                    // Assuming the first dosageInstruction is the most relevant
+                    // Check if the dosageInstruction has a text
+                    if dosageInstruction[0].text is string {
+                        string dosageText = check dosageInstruction[0].text;
+                        resourceSignature = string `${resourceSignature}|${resourceSignature}|${dosageText}`;
+                    }
+                }
+            }
+        }
+        "Condition" => {
+            // For Conditions, use code + onsetDateTime + identifier + category
+            map<json> fields = summary.fields;
+            if fields.hasKey("code") {
+                json? code = fields["code"];
+                if code is json[] {
+                    // Assuming the first code is the most relevant
+                    // Check if the code has a coding
+                    if code[0].coding is json[] {
+                        json|error codingVal = code[0].coding;
+                        if codingVal is json[] {
+                            // Assuming the first coding is the most relevant
+                            // Check if the coding has a code
+                            if codingVal[0].code is string {
+                                string codeVal = check codingVal[0].code;
+                                resourceSignature = string `${resourceSignature}|${summary.resourceType.toString()}|${codeVal}`;
+                            }
+                        }
+                    }
+                }
+            }
+            if fields.hasKey("onsetDateTime") {
+                json? onsetDateTime = fields["onsetDateTime"];
+                if onsetDateTime is json {
+                    resourceSignature = string `${resourceSignature}|${onsetDateTime.toString()}`;
+                }
+            }
+            if fields.hasKey("identifier") {
+                json? identifier = fields["identifier"];
+                if identifier is json[] {
+                    // Assuming the first identifier is the most relevant
+                    // Check if the identifier has a value
+                    if identifier[0].value is string {
+                        string identifierVal = check identifier[0].value;
+                        resourceSignature = string `${resourceSignature}|${identifierVal}`;
+                    }
+                }
+            }
+        }
     }
     if resourceSignature == "" {
-        return ();
+        return false;
     }
     if resourceSignatureList.indexOf(resourceSignature) == -1 {
         resourceSignatureList.push(resourceSignature);
+        return false;
     }
-    return resourceSignature;
+    return true;
 }
 
 function removeDuplicatesFromBundle(DuplicateEntry[] entries, r4:Bundle bundle) returns r4:Bundle {
     final r4:BundleEntry[] bundleEntries = bundle.entry ?: [];
     final r4:BundleEntry[] deduplicatedBundleEntries = bundleEntries.clone();
-    
+
     foreach DuplicateEntry duplicateEntry in entries {
         foreach r4:BundleEntry bundleEntry in bundleEntries {
             if bundleEntry?.'resource is r4:Resource {
