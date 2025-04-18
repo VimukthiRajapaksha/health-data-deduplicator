@@ -91,10 +91,10 @@ function constructResourceSummary(r4:Bundle bundle) returns ResourceSummary[]|er
                     json|error birthDate = jsonResult.birthDate;
                     json|error gender = jsonResult.gender;
                     summary.fields = {
-                        "identifier": identifier is json ? <json>identifier: (),
-                        "name": name is json ? <json>name: (),
-                        "birthDate": birthDate is json ? <json>birthDate: (),
-                        "gender" : gender is json ? <json>gender: ()
+                        "identifier": identifier is json ? <json>identifier : (),
+                        "name": name is json ? <json>name : (),
+                        "birthDate": birthDate is json ? <json>birthDate : (),
+                        "gender": gender is json ? <json>gender : ()
                     };
                 }
                 "Immunization" => {
@@ -104,10 +104,10 @@ function constructResourceSummary(r4:Bundle bundle) returns ResourceSummary[]|er
                     json|error occurrenceDateTime = jsonResult.occurrenceDateTime;
                     json|error patient = jsonResult.patient;
                     summary.fields = {
-                        "vaccineCode": vaccineCode is json ? <json>vaccineCode: (),
-                        "identifier": identifier is json ? <json>identifier: (),
-                        "occurrenceDateTime": occurrenceDateTime is json ? <json>occurrenceDateTime: (),
-                        "patient": patient is json ? <json>patient: ()
+                        "vaccineCode": vaccineCode is json ? <json>vaccineCode : (),
+                        "identifier": identifier is json ? <json>identifier : (),
+                        "occurrenceDateTime": occurrenceDateTime is json ? <json>occurrenceDateTime : (),
+                        "patient": patient is json ? <json>patient : ()
                     };
                 }
                 "DiagnosticReport" => {
@@ -116,9 +116,9 @@ function constructResourceSummary(r4:Bundle bundle) returns ResourceSummary[]|er
                     json|error effectivePeriod = jsonResult.effectivePeriod;
                     json|error identifier = jsonResult.identifier;
                     summary.fields = {
-                        "code": code is json ? <json>code: (),
-                        "effectivePeriod": effectivePeriod is json ? <json>effectivePeriod: (),
-                        "identifier": identifier is json ? <json>identifier: ()
+                        "code": code is json ? <json>code : (),
+                        "effectivePeriod": effectivePeriod is json ? <json>effectivePeriod : (),
+                        "identifier": identifier is json ? <json>identifier : ()
                     };
                 }
                 "AllergyIntolerance" => {
@@ -127,9 +127,9 @@ function constructResourceSummary(r4:Bundle bundle) returns ResourceSummary[]|er
                     json|error identifier = jsonResult.identifier;
                     json|error recordedDate = jsonResult.recordedDate;
                     summary.fields = {
-                        "reaction": reaction is json ? <json>reaction: (),
-                        "identifier": identifier is json ? <json>identifier: (),
-                        "recordedDate": recordedDate is json ? <json>recordedDate: ()
+                        "reaction": reaction is json ? <json>reaction : (),
+                        "identifier": identifier is json ? <json>identifier : (),
+                        "recordedDate": recordedDate is json ? <json>recordedDate : ()
                     };
                 }
                 "MedicationRequest" => {
@@ -137,8 +137,8 @@ function constructResourceSummary(r4:Bundle bundle) returns ResourceSummary[]|er
                     json|error medicationCodeableConcept = jsonResult.medicationCodeableConcept;
                     json|error dosageInstruction = jsonResult.dosageInstruction;
                     summary.fields = {
-                        "medicationCodeableConcept": medicationCodeableConcept is json ? <json>medicationCodeableConcept: (),
-                        "dosageInstruction": dosageInstruction is json ? <json>dosageInstruction: ()
+                        "medicationCodeableConcept": medicationCodeableConcept is json ? <json>medicationCodeableConcept : (),
+                        "dosageInstruction": dosageInstruction is json ? <json>dosageInstruction : ()
                     };
                 }
                 "Condition" => {
@@ -148,10 +148,10 @@ function constructResourceSummary(r4:Bundle bundle) returns ResourceSummary[]|er
                     json|error identifier = jsonResult.identifier;
                     json|error category = jsonResult.category;
                     summary.fields = {
-                        "code": code is json ? <json>code: (),
-                        "onsetDateTime": onsetDateTime is json ? <json>onsetDateTime: (),
-                        "identifier": identifier is json ? <json>identifier: (),
-                        "category": category is json ? <json>category: ()
+                        "code": code is json ? <json>code : (),
+                        "onsetDateTime": onsetDateTime is json ? <json>onsetDateTime : (),
+                        "identifier": identifier is json ? <json>identifier : (),
+                        "category": category is json ? <json>category : ()
                     };
                 }
             }
@@ -216,5 +216,24 @@ function getResourceSignature(ResourceSummary summary) returns string?|error {
     return resourceSignature;
 }
 
+function removeDuplicatesFromBundle(DuplicatedEntry[] entries, r4:Bundle bundle) returns r4:Bundle {
+    r4:BundleEntry[] dedupBundleEntries = [];
+    r4:Bundle finalBundle = {'type: "transaction", 'entry: dedupBundleEntries};
+    r4:BundleEntry[] bundleEntries = bundle.entry ?: [];
+    // Iterate through the entries and remove duplicates, inside need to iterate through duplicated entries
+    foreach r4:BundleEntry entry in bundleEntries {
+        if entry?.'resource is r4:Resource {
+            r4:Resource resourceResult = <r4:Resource>entry?.'resource;
+            string? resourceId = resourceResult.id;
+            if resourceId is string {
+                foreach var duplicatedEntry in entries {
+                    if duplicatedEntry.id != resourceId {
+                        dedupBundleEntries.push(entry);
+                    }
+                }
+            }
+        }
+    }
+    return finalBundle;
+}
 
-                                                            
