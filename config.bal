@@ -14,6 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// FTP configurations
 configurable string ftpHost = ?;
 configurable int ftpPort = ?;
 configurable string ftpUsername = ?;
@@ -27,3 +28,6 @@ configurable string openAiApiKey = ?;
 configurable string openAiApiVersion = ?;
 configurable string openAiDeploymentId = ?;
 configurable string openAiServiceUrl = ?;
+
+// Deduplication configurations
+configurable DedupMode deduplicationMode = probabilistic;

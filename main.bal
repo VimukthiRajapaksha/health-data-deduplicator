@@ -39,6 +39,7 @@ final ftp:Client ftpClient;
 // Initialize OpenAI agent
 final ai:Agent deduplicateAgent;
 r4:Bundle finalBundle = {'type: "transaction", 'entry: []};
+string[] resourceSignatureList = [];
 
 function init() returns error? {
     do {

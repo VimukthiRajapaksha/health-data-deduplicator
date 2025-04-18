@@ -71,6 +71,7 @@ isolated function getDuplicateEntries(ResourceSummary[] resourceSummaries) retur
 function constructResourceSummary(r4:Bundle bundle) returns ResourceSummary[]|error {
     ResourceSummary[] resourceSummaries = [];
     r4:BundleEntry[] entries = bundle.entry ?: [];
+    boolean isPatientEntryFilled = false;
 
     foreach r4:BundleEntry entry in entries {
         if entry?.'resource is r4:Resource {
@@ -85,6 +86,9 @@ function constructResourceSummary(r4:Bundle bundle) returns ResourceSummary[]|er
             json jsonResult = 'resource.toJson();
             match resourceType {
                 "Patient" => {
+                    if isPatientEntryFilled {
+                        continue;
+                    }
                     // For Patients, use identifier OR name + birthDate + gender
                     json|error identifier = jsonResult.identifier;
                     json|error name = jsonResult.name;
@@ -96,6 +100,7 @@ function constructResourceSummary(r4:Bundle bundle) returns ResourceSummary[]|er
                         "birthDate": birthDate is json ? <json>birthDate : (),
                         "gender": gender is json ? <json>gender : ()
                     };
+                    isPatientEntryFilled = true;
                 }
                 "Immunization" => {
                     // For Immunizations, use vaccineCode + identifier + occurrenceDateTime + patient
@@ -212,6 +217,9 @@ function getResourceSignature(ResourceSummary summary) returns string?|error {
     }
     if resourceSignature == "" {
         return ();
+    }
+    if resourceSignatureList.indexOf(resourceSignature) == -1 {
+        resourceSignatureList.push(resourceSignature);
     }
     return resourceSignature;
 }

@@ -40,3 +40,8 @@ type DuplicateEntry record {|
     float confidence;
     string reasoning;
 |};
+
+public enum DedupMode {
+    exact,
+    probabilistic
+}
